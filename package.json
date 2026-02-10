@@ -1,0 +1,7 @@
+"scripts": {
+  "compile": "hardhat compile",
+  "test": "hardhat test",
+  "lint:sol": "solhint \"contracts/**/*.sol\"",
+  "format": "prettier --write .",
+  "ci": "npm run compile && npm run test && npm run lint:sol"
+}
