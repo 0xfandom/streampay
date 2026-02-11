@@ -5,8 +5,7 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /// @title StreamPay
-/// @notice On-chain token streaming & vesting protocol (skeleton)
-/// @dev Issue #1: Data model, events, errors, and storage only (no business logic).
+/// @notice On-chain token streaming & vesting protocol
 contract StreamPay is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -14,20 +13,12 @@ contract StreamPay is ReentrancyGuard {
                                 ERRORS
     //////////////////////////////////////////////////////////////*/
 
-    /// @dev Stream does not exist (invalid ID)
     error StreamDoesNotExist();
-
-    /// @dev Generic invalid input amount (e.g., deposit = 0)
     error InvalidAmount();
-
-    /// @dev Generic invalid schedule (e.g., times out of order)
     error InvalidSchedule();
-
-    /// @dev Access control errors
+    error InvalidAddress();
     error NotSender();
     error NotRecipient();
-
-    /// @dev Stream state errors
     error StreamCanceled();
     error StreamNotCancelable();
 
@@ -35,7 +26,6 @@ contract StreamPay is ReentrancyGuard {
                                 EVENTS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Emitted when a stream is created (implemented in Issue #2)
     event StreamCreated(
         uint256 indexed streamId,
         address indexed token,
@@ -48,10 +38,8 @@ contract StreamPay is ReentrancyGuard {
         bool cancelable
     );
 
-    /// @notice Emitted when recipient withdraws vested tokens (implemented in Issue #4)
     event Withdrawn(uint256 indexed streamId, address indexed recipient, uint128 amount);
 
-    /// @notice Emitted when sender cancels a stream (implemented in Issue #7)
     event Canceled(
         uint256 indexed streamId,
         address indexed sender,
@@ -63,24 +51,15 @@ contract StreamPay is ReentrancyGuard {
                                 DATA MODEL
     //////////////////////////////////////////////////////////////*/
 
-    /// @dev Stream represents a single vesting/streaming schedule funded by `sender`
-    ///      and claimable by `recipient`.
     struct Stream {
-        // Participants
-        address token;      // ERC20 token address
-        address sender;     // funder / stream creator
-        address recipient;  // beneficiary
-
-        // Accounting
-        uint128 deposit;    // total deposited amount
-        uint128 withdrawn;  // total withdrawn by recipient
-
-        // Schedule
+        address token;
+        address sender;
+        address recipient;
+        uint128 deposit;
+        uint128 withdrawn;
         uint64 startTime;
         uint64 cliffTime;
         uint64 endTime;
-
-        // Flags
         bool cancelable;
         bool canceled;
     }
@@ -89,25 +68,70 @@ contract StreamPay is ReentrancyGuard {
                                 STORAGE
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Next stream ID (starts at 1)
     uint256 public nextStreamId = 1;
-
-    /// @dev Streams storage (streamId => Stream)
     mapping(uint256 => Stream) internal _streams;
+
+    /*//////////////////////////////////////////////////////////////
+                            STREAM CREATION
+    //////////////////////////////////////////////////////////////*/
+
+    function createStream(
+        address token,
+        address recipient,
+        uint128 deposit,
+        uint64 startTime,
+        uint64 cliffTime,
+        uint64 endTime,
+        bool cancelable
+    ) external nonReentrant returns (uint256 streamId) {
+        if (token == address(0) || recipient == address(0)) revert InvalidAddress();
+        if (deposit == 0) revert InvalidAmount();
+
+        // Validate schedule
+        if (!(startTime <= cliffTime && cliffTime <= endTime)) revert InvalidSchedule();
+        if (endTime <= startTime) revert InvalidSchedule();
+
+        streamId = nextStreamId++;
+
+        _streams[streamId] = Stream({
+            token: token,
+            sender: msg.sender,
+            recipient: recipient,
+            deposit: deposit,
+            withdrawn: 0,
+            startTime: startTime,
+            cliffTime: cliffTime,
+            endTime: endTime,
+            cancelable: cancelable,
+            canceled: false
+        });
+
+        // Pull tokens from sender
+        IERC20(token).safeTransferFrom(msg.sender, address(this), deposit);
+
+        emit StreamCreated(
+            streamId,
+            token,
+            msg.sender,
+            recipient,
+            deposit,
+            startTime,
+            cliffTime,
+            endTime,
+            cancelable
+        );
+    }
 
     /*//////////////////////////////////////////////////////////////
                                 VIEWS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Returns stream data for a given streamId
-    /// @dev Reverts if the stream does not exist.
     function getStream(uint256 streamId) external view returns (Stream memory) {
         Stream memory s = _streams[streamId];
         if (s.sender == address(0)) revert StreamDoesNotExist();
         return s;
     }
 
-    /// @notice Checks whether stream exists
     function streamExists(uint256 streamId) public view returns (bool) {
         return _streams[streamId].sender != address(0);
     }
