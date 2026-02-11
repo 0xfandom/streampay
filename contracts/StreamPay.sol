@@ -106,7 +106,6 @@ contract StreamPay is ReentrancyGuard {
             canceled: false
         });
 
-        // Pull tokens from sender
         IERC20(token).safeTransferFrom(msg.sender, address(this), deposit);
 
         emit StreamCreated(
@@ -120,6 +119,44 @@ contract StreamPay is ReentrancyGuard {
             endTime,
             cancelable
         );
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        VESTING LOGIC (VIEWS)
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Returns vested amount at a given timestamp (ignores withdrawn)
+    /// @dev Cliff: 0 vested before cliffTime. Linear vesting between startTime and endTime.
+    function vestedAmount(uint256 streamId, uint64 timestamp) public view returns (uint128) {
+        Stream memory s = _streams[streamId];
+        if (s.sender == address(0)) revert StreamDoesNotExist();
+
+        // Before start => 0
+        if (timestamp <= s.startTime) return 0;
+
+        // Before cliff => 0
+        if (timestamp < s.cliffTime) return 0;
+
+        // At/after end => full deposit
+        if (timestamp >= s.endTime) return s.deposit;
+
+        // Linear vesting between start and end
+        uint256 elapsed = uint256(timestamp - s.startTime);
+        uint256 duration = uint256(s.endTime - s.startTime);
+
+        uint256 vested = (uint256(s.deposit) * elapsed) / duration;
+        return uint128(vested);
+    }
+
+    /// @notice Amount currently withdrawable by recipient at block.timestamp
+    /// @dev withdrawable = vested(now) - withdrawn (floored at 0)
+    function withdrawableAmount(uint256 streamId) public view returns (uint128) {
+        Stream memory s = _streams[streamId];
+        if (s.sender == address(0)) revert StreamDoesNotExist();
+
+        uint128 vestedNow = vestedAmount(streamId, uint64(block.timestamp));
+        if (vestedNow <= s.withdrawn) return 0;
+        return vestedNow - s.withdrawn;
     }
 
     /*//////////////////////////////////////////////////////////////
