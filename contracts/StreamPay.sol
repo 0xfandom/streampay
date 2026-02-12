@@ -1,50 +1,26 @@
     /*//////////////////////////////////////////////////////////////
-                        VESTING LOGIC (HARDENED)
+                                WITHDRAW
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Returns vested amount at a given timestamp
-    /// @dev Implements cliff + linear vesting with rounding down
-    function vestedAmount(uint256 streamId, uint64 timestamp) public view returns (uint128) {
-        Stream memory s = _streams[streamId];
+    /// @notice Withdraw vested tokens (supports partial withdrawals)
+    function withdraw(uint256 streamId, uint128 amount) external nonReentrant {
+        Stream storage s = _streams[streamId];
+
         if (s.sender == address(0)) revert StreamDoesNotExist();
+        if (msg.sender != s.recipient) revert NotRecipient();
+        if (amount == 0) revert InvalidAmount();
 
-        uint64 effectiveEnd = s.endTime;
+        // Optional safety: if canceled, only allow vested portion
+        if (s.canceled && block.timestamp < s.endTime) revert StreamCanceled();
 
-        // Before start
-        if (timestamp <= s.startTime) {
-            return 0;
-        }
+        uint128 available = withdrawableAmount(streamId);
+        if (amount > available) revert InvalidAmount();
 
-        // Before cliff
-        if (timestamp < s.cliffTime) {
-            return 0;
-        }
+        // Effects (update state before transfer)
+        s.withdrawn += amount;
 
-        // At or after end
-        if (timestamp >= effectiveEnd) {
-            return s.deposit;
-        }
+        // Interaction
+        IERC20(s.token).safeTransfer(s.recipient, amount);
 
-        // Safe linear interpolation
-        uint256 elapsed = uint256(timestamp - s.startTime);
-        uint256 duration = uint256(effectiveEnd - s.startTime);
-
-        uint256 vested = (uint256(s.deposit) * elapsed) / duration;
-
-        return uint128(vested);
-    }
-
-    /// @notice Returns currently withdrawable amount
-    /// @dev withdrawable = vested(now) - withdrawn (floored at zero)
-    function withdrawableAmount(uint256 streamId) public view returns (uint128) {
-        Stream memory s = _streams[streamId];
-        if (s.sender == address(0)) revert StreamDoesNotExist();
-
-        uint128 vestedNow = vestedAmount(streamId, uint64(block.timestamp));
-
-        if (vestedNow <= s.withdrawn) {
-            return 0;
-        }
-
-        return vestedNow - s.withdrawn;
+        emit Withdrawn(streamId, s.recipient, amount);
     }
