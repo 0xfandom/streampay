@@ -24,3 +24,31 @@
 
         emit Withdrawn(streamId, s.recipient, amount);
     }
+
+    /*//////////////////////////////////////////////////////////////
+                                CANCEL
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Cancel a cancelable stream.
+    /// @dev Freezes vesting at cancellation time and refunds unvested tokens.
+    function cancel(uint256 streamId) external nonReentrant {
+        Stream storage s = _streams[streamId];
+
+        if (s.sender == address(0)) revert StreamDoesNotExist();
+        if (msg.sender != s.sender) revert NotSender();
+        if (!s.cancelable) revert NotCancelable();
+        if (s.canceled) revert StreamInactive();
+
+        uint64 cancelTime = uint64(block.timestamp);
+
+        // Freeze vesting by updating endTime
+        if (cancelTime < s.endTime) {
+            s.endTime = cancelTime;
+        }
+
+        s.canceled = true;
+
+        // Calculate vested at cancellation
+        uint128 vested = vestedAmount(streamId, cancelTime);
+
+        // Sender gets unveste
