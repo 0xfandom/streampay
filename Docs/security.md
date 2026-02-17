@@ -90,3 +90,11 @@ The following are deliberate design choices:
   Funds cannot be seized, frozen, or redirected by anyone
 
 These choices make StreamPay a **trust-minimized, non-custodial streaming protocol**.
+
+## Threat Model
+
+See: `docs/threat-model.md`
+
+## Audit Checklist
+
+See: `docs/audit-checklist.md`
